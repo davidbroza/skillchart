@@ -592,11 +592,20 @@ HTML_TEMPLATE = r"""<!doctype html>
   .budget-bar > span { display: block; height: 100%; background: linear-gradient(90deg, var(--accent), var(--warn)); }
   .budget-bar.skills > span { background: linear-gradient(90deg, var(--user), var(--accent)); }
   .budget-bar.tools > span { background: linear-gradient(90deg, var(--tool), var(--warn)); }
-  .budget-aside { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 10px; margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--border); }
-  .budget-aside .item { font-size: 12px; }
-  .budget-aside .item .k { color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; font-size: 10.5px; }
-  .budget-aside .item .v { font-weight: 600; font-size: 14px; margin-top: 2px; }
-  .budget-aside .item .v small { color: var(--muted); font-weight: 400; font-size: 11px; }
+  .budget-intro { color: var(--muted); font-size: 13px; line-height: 1.6; margin: 0 0 14px; max-width: 70ch; }
+  .budget-intro strong { color: var(--text); font-weight: 600; }
+  .budget-bar-row .why { color: var(--muted); font-size: 11.5px; flex-basis: 100%; padding-left: 130px; margin-top: -2px; line-height: 1.4; }
+  .budget-callout { background: rgba(63, 185, 80, 0.10); border-left: 3px solid var(--good); border-radius: 0 6px 6px 0; padding: 8px 12px; margin-top: 12px; font-size: 12.5px; color: var(--text); line-height: 1.5; }
+  .budget-callout code { background: var(--panel-2); padding: 1px 5px; border-radius: 3px; font-size: 12px; }
+  .budget-aside { display: grid; grid-template-columns: 1fr; gap: 0; margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--border); }
+  .budget-aside .item { display: grid; grid-template-columns: 200px 1fr; align-items: baseline; gap: 16px; padding: 10px 0; border-bottom: 1px solid var(--border); }
+  .budget-aside .item:last-child { border-bottom: none; }
+  .budget-aside .item .k { display: flex; flex-direction: column; gap: 2px; }
+  .budget-aside .item .k .label { color: var(--text); font-weight: 600; font-size: 13px; }
+  .budget-aside .item .k .sub { color: var(--muted); font-size: 11.5px; line-height: 1.4; }
+  .budget-aside .item .v { font-size: 14px; font-variant-numeric: tabular-nums; }
+  .budget-aside .item .v .num { font-weight: 600; }
+  .budget-aside .item .v .formula { display: block; color: var(--muted); font-size: 11.5px; margin-top: 3px; line-height: 1.4; }
 </style>
 </head>
 <body>
@@ -717,21 +726,30 @@ function renderBudget() {
     ? `· Opus: ${plan.code_hours_opus_weekly[0]}–${plan.code_hours_opus_weekly[1]} h/wk`
     : "";
 
+  const ctxLeft = ctx - totalAlways;
+
   budgetEl.innerHTML = `
     <div class="budget-head">
       <div class="plan">📊 Budget · <span style="color:var(--muted);font-weight:400;">on</span> <code>${escape(plan.label)}</code></div>
       <div class="plan-hint">~${msgPer5h} msgs / 5h window · Sonnet ${plan.code_hours_sonnet_weekly[0]}–${plan.code_hours_sonnet_weekly[1]} h/wk ${opusLine}</div>
     </div>
 
+    <p class="budget-intro">
+      Every time you press Enter, the model reads <strong>~${fmt(totalAlways)} tokens of skill + tool descriptions</strong> before it even sees your message — that's just the system prompt baseline.
+      The bars below show how much of <strong>each turn's ${fmt(ctx)}-token context window</strong> goes to that baseline. Everything not in the bars (~${(100 - pctTotal).toFixed(1)}%, ~${fmt(ctxLeft)} tokens) is the room you have left for <em>your</em> code, conversation, file reads.
+    </p>
+
     <div class="budget-bar-row">
       <span class="lbl">Skills / turn</span>
       <span class="val"><span class="num">${fmt(skillsAlways)}</span> tok <span class="pct">${pctSkills.toFixed(2)}%</span></span>
       <span class="budget-bar skills"><span style="width:${Math.min(100, pctSkills * 6).toFixed(1)}%"></span></span>
+      <div class="why">Descriptions of every SKILL.md — yours + agent-sdk + plugin commands + built-ins. This is what you actually control: trimming descriptions or archiving unused skills lowers this bar.</div>
     </div>
     <div class="budget-bar-row">
       <span class="lbl">CLI tools / turn</span>
       <span class="val"><span class="num">${fmt(toolsAlways)}</span> tok <span class="pct">${pctTools.toFixed(2)}%</span></span>
       <span class="budget-bar tools"><span style="width:${Math.min(100, pctTools * 6).toFixed(1)}%"></span></span>
+      <div class="why">Descriptions of <code>Bash</code>, <code>Read</code>, <code>Edit</code>, <code>Write</code>, <code>Skill</code>, <code>Agent</code>… — these ship inside Claude Code, you can't change them, but they share the same system prompt as your skills.</div>
     </div>
     <div class="budget-bar-row">
       <span class="lbl"><strong>Total / turn</strong></span>
@@ -739,23 +757,56 @@ function renderBudget() {
       <span class="budget-bar"><span style="width:${Math.min(100, pctTotal * 6).toFixed(1)}%"></span></span>
     </div>
 
+    <div class="budget-callout">
+      ✅ At <strong>${pctTotal.toFixed(1)}%</strong> of context per turn, you're <strong>${pctTotal < 5 ? "in great shape" : pctTotal < 10 ? "fine" : "running heavy"}</strong>. Anthropic suggests keeping system-prompt overhead below 5% so the model has room for the actual conversation. Every extra ${fmt(50)} tokens of skill description costs you ~0.025% of every turn forever.
+    </div>
+
     <div class="budget-aside">
+
       <div class="item">
-        <div class="k">Per 5h window</div>
-        <div class="v">~${fmt(Math.round(skillsPerWindow / 1000))}k tok <small>(${msgPer5h} turns × ${fmt(totalAlways)})</small></div>
+        <div class="k">
+          <span class="label">In one 5-hour window</span>
+          <span class="sub">A "window" is Anthropic's usage burst limit. On <code>${escape(plan.label)}</code> you get ~${msgPer5h} messages every 5 hours.</span>
+        </div>
+        <div class="v">
+          <span class="num">~${fmt(Math.round(skillsPerWindow / 1000))}k tokens</span>
+          <span class="formula">${msgPer5h} msgs × ${fmt(totalAlways)} tok of skill/tool descriptions = ${fmt(Math.round(skillsPerWindow / 1000))}k tokens of "always on" overhead read by the model in one window.</span>
+        </div>
       </div>
+
       <div class="item">
-        <div class="k">Per month at cap</div>
-        <div class="v">~${fmt(Math.round(skillsPerMonth / 1_000_000))}M tok <small>(at max msgs/5h, 24×7)</small></div>
+        <div class="k">
+          <span class="label">Theoretical monthly max</span>
+          <span class="sub">If you absolutely maxed out the plan — ${msgPer5h} msgs every 5 hours, 24×7. Nobody actually does this; it's the ceiling.</span>
+        </div>
+        <div class="v">
+          <span class="num">~${fmt(Math.round(skillsPerMonth / 1_000_000))}M tokens</span>
+          <span class="formula">${fmt(Math.round(msgsPerWeek))} msgs/wk × 4.345 wks × ${fmt(totalAlways)} tok of overhead.</span>
+        </div>
       </div>
+
       <div class="item">
-        <div class="k">API-equivalent / mo</div>
-        <div class="v">~$${equivSonnet.toFixed(2)} <small>Sonnet</small> · ~$${equivOpus.toFixed(2)} <small>Opus</small></div>
+        <div class="k">
+          <span class="label">If you were paying API rates</span>
+          <span class="sub">For comparison: same volume of overhead tokens billed at Anthropic's pay-as-you-go API pricing, assuming 70% cache hits (5-min TTL).</span>
+        </div>
+        <div class="v">
+          <span class="num">~$${equivSonnet.toFixed(2)}/mo Sonnet</span> · <span class="num">~$${equivOpus.toFixed(2)}/mo Opus</span>
+          <span class="formula">${fmt(Math.round(skillsPerMonth / 1_000_000))}M tok × 30% billable × $3 / $15 per M.</span>
+        </div>
       </div>
+
       <div class="item">
-        <div class="k">Plan</div>
-        <div class="v">$${plan.monthly_price_usd}/mo <small>flat — no per-token billing</small></div>
+        <div class="k">
+          <span class="label">What you actually pay</span>
+          <span class="sub">Max plans are flat-rate — no per-token billing. The "API-equivalent" above only matters for comparing whether your plan tier makes sense for how heavily you use Claude Code.</span>
+        </div>
+        <div class="v">
+          <span class="num">$${plan.monthly_price_usd}/mo</span>
+          <span class="formula">Flat. The skill burden costs you context window space, not dollars on this plan.</span>
+        </div>
       </div>
+
     </div>
   `;
 }
