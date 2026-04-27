@@ -22,7 +22,7 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"
 
 HOME = Path.home()
 
@@ -51,6 +51,59 @@ def default_cache_dir() -> Path:
 
 
 SNAPSHOT_PATH = default_cache_dir() / "last-snapshot.json"
+CONFIG_PATH = Path(os.environ.get("XDG_CONFIG_HOME", str(HOME / ".config"))) / "skillchart" / "config.json"
+
+
+# Subscription plans — approximate quotas, transparently labelled.
+# Anthropic publishes ranges; these are reasonable midpoints. Override in config or via --plan.
+PLANS: dict[str, dict] = {
+    "free": {
+        "label": "Free",
+        "monthly_price_usd": 0,
+        "context_window": 200_000,
+        "messages_per_5h": 30,
+        "code_hours_sonnet_weekly": (5, 15),
+        "code_hours_opus_weekly": None,
+    },
+    "pro": {
+        "label": "Pro ($20/mo)",
+        "monthly_price_usd": 20,
+        "context_window": 200_000,
+        "messages_per_5h": 80,
+        "code_hours_sonnet_weekly": (40, 80),
+        "code_hours_opus_weekly": None,
+    },
+    "max-5x": {
+        "label": "Max 5x ($100/mo)",
+        "monthly_price_usd": 100,
+        "context_window": 200_000,
+        "messages_per_5h": 225,
+        "code_hours_sonnet_weekly": (50, 200),
+        "code_hours_opus_weekly": (5, 40),
+    },
+    "max-20x": {
+        "label": "Max 20x ($200/mo)",
+        "monthly_price_usd": 200,
+        "context_window": 200_000,
+        "messages_per_5h": 900,
+        "code_hours_sonnet_weekly": (240, 480),
+        "code_hours_opus_weekly": (24, 40),
+    },
+}
+
+
+def load_config() -> dict:
+    if not CONFIG_PATH.exists():
+        return {}
+    try:
+        return json.loads(CONFIG_PATH.read_text())
+    except Exception:
+        return {}
+
+
+def save_config(cfg: dict) -> None:
+    CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+    CONFIG_PATH.write_text(json.dumps(cfg, indent=2) + "\n")
 
 
 # Built-in skills shipped with the Claude Code CLI (no SKILL.md on disk).
@@ -525,6 +578,25 @@ HTML_TEMPLATE = r"""<!doctype html>
   .diff-banner { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 10px 14px; margin-bottom: 16px; font-size: 13px; }
   .diff-banner .delta-up { color: var(--hot); }
   .diff-banner .delta-down { color: var(--good); }
+  .budget { background: linear-gradient(135deg, rgba(88,166,255,0.08), rgba(88,166,255,0.02)); border: 1px solid var(--border); border-radius: 10px; padding: 16px 20px; margin-bottom: 22px; }
+  .budget-head { display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: 12px; margin-bottom: 14px; }
+  .budget-head .plan { font-size: 16px; font-weight: 600; }
+  .budget-head .plan code { background: var(--panel-2); padding: 2px 7px; border-radius: 4px; font-size: 12px; color: var(--accent); margin-left: 6px; }
+  .budget-head .plan-hint { color: var(--muted); font-size: 12px; }
+  .budget-bar-row { display: flex; align-items: center; gap: 10px; margin: 8px 0; font-size: 13px; }
+  .budget-bar-row .lbl { width: 130px; color: var(--muted); font-size: 12px; flex-shrink: 0; }
+  .budget-bar-row .val { font-variant-numeric: tabular-nums; min-width: 220px; }
+  .budget-bar-row .val .num { font-weight: 600; color: var(--text); }
+  .budget-bar-row .val .pct { color: var(--warn); margin-left: 6px; font-size: 12px; }
+  .budget-bar { flex: 1; height: 8px; background: var(--panel-2); border-radius: 4px; overflow: hidden; min-width: 120px; }
+  .budget-bar > span { display: block; height: 100%; background: linear-gradient(90deg, var(--accent), var(--warn)); }
+  .budget-bar.skills > span { background: linear-gradient(90deg, var(--user), var(--accent)); }
+  .budget-bar.tools > span { background: linear-gradient(90deg, var(--tool), var(--warn)); }
+  .budget-aside { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 10px; margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--border); }
+  .budget-aside .item { font-size: 12px; }
+  .budget-aside .item .k { color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; font-size: 10.5px; }
+  .budget-aside .item .v { font-weight: 600; font-size: 14px; margin-top: 2px; }
+  .budget-aside .item .v small { color: var(--muted); font-weight: 400; font-size: 11px; }
 </style>
 </head>
 <body>
@@ -537,6 +609,8 @@ HTML_TEMPLATE = r"""<!doctype html>
   <div id="diff-banner-host"></div>
 
   <div class="stats" id="stats"></div>
+
+  <section id="budget" class="budget"></section>
 
   <details id="opt-panel" open>
     <summary>💡 Optimization suggestions</summary>
@@ -584,6 +658,7 @@ const q = document.getElementById("q");
 const statsEl = document.getElementById("stats");
 const optEl = document.getElementById("opt-body");
 const diffHost = document.getElementById("diff-banner-host");
+const budgetEl = document.getElementById("budget");
 
 document.getElementById("counter-mode").textContent = `· Tokens via ${META.tiktoken ? "tiktoken (cl100k_base)" : "chars/4 estimate"}`;
 document.getElementById("counter-mode-2").textContent = META.tiktoken ? "tiktoken cl100k_base (accurate)" : "chars/4 (rough)";
@@ -609,6 +684,81 @@ let sortDir = -1;
 
 function fmt(n) { return n == null ? "—" : n.toLocaleString(); }
 function maxBy(arr, k) { return arr.reduce((m, x) => Math.max(m, x[k] || 0), 0); }
+
+function renderBudget() {
+  const plan = META.plan;
+  const planKey = META.plan_key;
+  const canonical = SKILLS.filter(s => s.canonical);
+  const skillRows = canonical.filter(x => x.category !== "tool");
+  const toolRows = canonical.filter(x => x.category === "tool");
+  const skillsAlways = skillRows.reduce((s, x) => s + (x.desc_tokens || 0), 0);
+  const toolsAlways = toolRows.reduce((s, x) => s + (x.desc_tokens || 0), 0);
+  const totalAlways = skillsAlways + toolsAlways;
+  const ctx = plan.context_window;
+  const pctSkills = (skillsAlways / ctx) * 100;
+  const pctTools = (toolsAlways / ctx) * 100;
+  const pctTotal = pctSkills + pctTools;
+
+  const msgPer5h = plan.messages_per_5h;
+  const msgsPerWeek = msgPer5h * (24 * 7 / 5);
+  const skillsPerWindow = totalAlways * msgPer5h;
+  const skillsPerMonth = totalAlways * msgsPerWeek * 4.345;
+
+  // What it would cost if you were on API pricing (Sonnet input ~$3/M, Opus ~$15/M).
+  // We assume cache hit ~70% of the time (5-min TTL, multi-turn sessions).
+  const cacheHitRate = 0.70;
+  const sonnetUSDperM = 3.00;
+  const opusUSDperM = 15.00;
+  const billable = skillsPerMonth * (1 - cacheHitRate);
+  const equivSonnet = (billable / 1_000_000) * sonnetUSDperM;
+  const equivOpus = (billable / 1_000_000) * opusUSDperM;
+
+  const opusLine = plan.code_hours_opus_weekly
+    ? `· Opus: ${plan.code_hours_opus_weekly[0]}–${plan.code_hours_opus_weekly[1]} h/wk`
+    : "";
+
+  budgetEl.innerHTML = `
+    <div class="budget-head">
+      <div class="plan">📊 Budget · <span style="color:var(--muted);font-weight:400;">on</span> <code>${escape(plan.label)}</code></div>
+      <div class="plan-hint">~${msgPer5h} msgs / 5h window · Sonnet ${plan.code_hours_sonnet_weekly[0]}–${plan.code_hours_sonnet_weekly[1]} h/wk ${opusLine}</div>
+    </div>
+
+    <div class="budget-bar-row">
+      <span class="lbl">Skills / turn</span>
+      <span class="val"><span class="num">${fmt(skillsAlways)}</span> tok <span class="pct">${pctSkills.toFixed(2)}%</span></span>
+      <span class="budget-bar skills"><span style="width:${Math.min(100, pctSkills * 6).toFixed(1)}%"></span></span>
+    </div>
+    <div class="budget-bar-row">
+      <span class="lbl">CLI tools / turn</span>
+      <span class="val"><span class="num">${fmt(toolsAlways)}</span> tok <span class="pct">${pctTools.toFixed(2)}%</span></span>
+      <span class="budget-bar tools"><span style="width:${Math.min(100, pctTools * 6).toFixed(1)}%"></span></span>
+    </div>
+    <div class="budget-bar-row">
+      <span class="lbl"><strong>Total / turn</strong></span>
+      <span class="val"><span class="num">${fmt(totalAlways)}</span> tok of ${fmt(ctx)} <span class="pct">${pctTotal.toFixed(2)}%</span></span>
+      <span class="budget-bar"><span style="width:${Math.min(100, pctTotal * 6).toFixed(1)}%"></span></span>
+    </div>
+
+    <div class="budget-aside">
+      <div class="item">
+        <div class="k">Per 5h window</div>
+        <div class="v">~${fmt(Math.round(skillsPerWindow / 1000))}k tok <small>(${msgPer5h} turns × ${fmt(totalAlways)})</small></div>
+      </div>
+      <div class="item">
+        <div class="k">Per month at cap</div>
+        <div class="v">~${fmt(Math.round(skillsPerMonth / 1_000_000))}M tok <small>(at max msgs/5h, 24×7)</small></div>
+      </div>
+      <div class="item">
+        <div class="k">API-equivalent / mo</div>
+        <div class="v">~$${equivSonnet.toFixed(2)} <small>Sonnet</small> · ~$${equivOpus.toFixed(2)} <small>Opus</small></div>
+      </div>
+      <div class="item">
+        <div class="k">Plan</div>
+        <div class="v">$${plan.monthly_price_usd}/mo <small>flat — no per-token billing</small></div>
+      </div>
+    </div>
+  `;
+}
 
 function renderStats(rows) {
   const canonical = rows.filter(x => x.canonical);
@@ -708,6 +858,7 @@ function render() {
     return sortDir * (va - vb);
   });
 
+  renderBudget();
   renderStats(rows);
   renderOptimizations();
 
@@ -799,8 +950,24 @@ def main():
     ap.add_argument("--apply", action="store_true", help="With --fix-dupes: actually perform the symlinking (default is dry-run).")
     ap.add_argument("--no-snapshot", action="store_true", help="Don't write a snapshot for next-run diffing.")
     ap.add_argument("--no-usage", action="store_true", help="Skip parsing session logs for invocation counts (faster).")
+    ap.add_argument("--plan", choices=list(PLANS.keys()), help="Override subscription plan for this run (free / pro / max-5x / max-20x).")
+    ap.add_argument("--set-plan", choices=list(PLANS.keys()), metavar="PLAN", help="Save plan to ~/.config/skillchart/config.json and exit.")
+    ap.add_argument("--show-config", action="store_true", help="Print the resolved config and exit.")
     ap.add_argument("--version", action="version", version=f"skillchart {__version__}")
     args = ap.parse_args()
+
+    cfg = load_config()
+    if args.set_plan:
+        cfg["plan"] = args.set_plan
+        save_config(cfg)
+        print(f"saved plan={args.set_plan} to {CONFIG_PATH}")
+        return
+    if args.show_config:
+        resolved = {"plan": args.plan or cfg.get("plan", "max-5x"), "config_path": str(CONFIG_PATH), "config_exists": CONFIG_PATH.exists()}
+        print(json.dumps(resolved, indent=2))
+        return
+    plan_key = args.plan or cfg.get("plan", "max-5x")
+    plan = PLANS.get(plan_key, PLANS["max-5x"])
 
     skills = discover_skills()
 
@@ -828,7 +995,13 @@ def main():
 
     out_path = args.output or default_output_path()
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    meta = {"tiktoken": TIKTOKEN_AVAILABLE, "diff": diff or None, "version": __version__}
+    meta = {
+        "tiktoken": TIKTOKEN_AVAILABLE,
+        "diff": diff or None,
+        "version": __version__,
+        "plan_key": plan_key,
+        "plan": plan,
+    }
     out = (HTML_TEMPLATE
            .replace("__DATA__", json.dumps(all_rows, ensure_ascii=False))
            .replace("__META__", json.dumps(meta, ensure_ascii=False)))
@@ -847,7 +1020,9 @@ def main():
     invoked = sum(1 for s in canonical if s.get("invocations", 0) > 0)
     never = sum(1 for s in canonical if s.get("invocations", 0) == 0 and s["category"] in ("user", "agent-sdk", "plugin"))
     print(f"  unique skills: {len(skill_canon)} ({by_cat}), {len(tool_canon)} tools", file=sys.stderr)
-    print(f"  always-loaded: ~{skills_desc:,} skill tok + ~{tools_desc:,} tool tok = ~{skills_desc + tools_desc:,} tok / turn", file=sys.stderr)
+    always_total = skills_desc + tools_desc
+    pct = always_total / plan["context_window"] * 100
+    print(f"  always-loaded: ~{skills_desc:,} skill tok + ~{tools_desc:,} tool tok = ~{always_total:,} tok / turn ({pct:.1f}% of {plan['context_window']:,} ctx — {plan['label']})", file=sys.stderr)
     print(f"  on-demand sum: ~{skills_body:,} tokens", file=sys.stderr)
     print(f"  usage: {invoked} invoked at least once, {never} never invoked", file=sys.stderr)
     if not TIKTOKEN_AVAILABLE:
