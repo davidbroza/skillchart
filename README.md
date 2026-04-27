@@ -29,15 +29,31 @@ For each skill it shows:
 
 Token estimate is `chars / 4` (cl100k-style). Good enough to compare skills against each other and find the fat ones.
 
-## Run it
+## Install
+
+```bash
+brew install davidbroza/tap/skillchart
+skillchart
+```
+
+Or run from source — zero dependencies, Python 3.9+:
 
 ```bash
 git clone https://github.com/davidbroza/skillchart
 cd skillchart
-python3 build.py && open dashboard.html
+python3 build.py
 ```
 
-Zero dependencies. The HTML is self-contained — open it in any browser, share it as a single file.
+## Usage
+
+```
+skillchart                # build + open dashboard in browser
+skillchart --no-open      # build, don't open
+skillchart --json         # print scanned data as JSON to stdout
+skillchart -o out.html    # write to a specific path
+```
+
+The HTML is self-contained — open it in any browser, share it as a single file.
 
 ## Optimization playbook
 

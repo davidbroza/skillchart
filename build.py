@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """Scan every Claude Code skill on this machine and emit a self-contained HTML dashboard."""
+import argparse
 import json
 import os
 import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -469,7 +471,31 @@ render();
 CATEGORY_PRIORITY = {"agent-sdk": 0, "user": 1, "plugin": 2, "built-in": 3}
 
 
+def default_output_path() -> Path:
+    if sys.platform == "darwin":
+        return Path.home() / "Library" / "Caches" / "skillchart" / "dashboard.html"
+    return Path(os.environ.get("XDG_CACHE_HOME", str(Path.home() / ".cache"))) / "skillchart" / "dashboard.html"
+
+
+def open_in_browser(path: Path) -> None:
+    try:
+        if sys.platform == "darwin":
+            subprocess.run(["open", str(path)], check=False)
+        elif sys.platform.startswith("linux"):
+            subprocess.run(["xdg-open", str(path)], check=False)
+        elif sys.platform == "win32":
+            os.startfile(str(path))  # type: ignore[attr-defined]
+    except Exception:
+        pass
+
+
 def main():
+    ap = argparse.ArgumentParser(description="Audit Claude Code skills on this machine and emit an HTML dashboard.")
+    ap.add_argument("-o", "--output", type=Path, help="Output path for the HTML dashboard. Defaults to a cache dir.")
+    ap.add_argument("--json", action="store_true", help="Print the scanned skill data as JSON to stdout instead of writing HTML.")
+    ap.add_argument("--no-open", action="store_true", help="Don't open the dashboard in the browser after building.")
+    args = ap.parse_args()
+
     skills = discover_skills()
     # mark disk duplicates and pick a canonical entry per name (lowest priority wins)
     by_name: dict[str, list[dict]] = {}
@@ -493,8 +519,15 @@ def main():
                 s["duplicate"] = len(non_symlink) > 1
                 s["canonical"] = i == 0
     skills.sort(key=lambda s: (-(s.get("body_tokens") or 0), s["name"]))
+
+    if args.json:
+        json.dump(skills, sys.stdout, ensure_ascii=False, indent=2)
+        sys.stdout.write("\n")
+        return
+
+    out_path = args.output or default_output_path()
+    out_path.parent.mkdir(parents=True, exist_ok=True)
     out = HTML_TEMPLATE.replace("__DATA__", json.dumps(skills, ensure_ascii=False))
-    out_path = Path(__file__).parent / "dashboard.html"
     out_path.write_text(out, encoding="utf-8")
     print(f"wrote {out_path}  ({len(skills)} skills)", file=sys.stderr)
     # quick text summary
@@ -508,6 +541,9 @@ def main():
         total_body += s["body_tokens"] or 0
     print(f"  unique loaded: {len(canonical)} skills, by category: {by_cat}", file=sys.stderr)
     print(f"  always-loaded ~{total_desc:,} tokens / on-demand sum ~{total_body:,} tokens", file=sys.stderr)
+
+    if not args.no_open:
+        open_in_browser(out_path)
 
 
 if __name__ == "__main__":
