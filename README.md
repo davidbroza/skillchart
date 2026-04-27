@@ -31,18 +31,27 @@ Token estimate is `chars / 4` (cl100k-style). Good enough to compare skills agai
 
 ## Install
 
+**One-liner (any platform with Python 3.9+):**
+
 ```bash
-brew install davidbroza/tap/skillchart
-skillchart
+curl -fsSL https://raw.githubusercontent.com/davidbroza/skillchart/main/install.sh | bash
 ```
 
-Or run from source — zero dependencies, Python 3.9+:
+**Homebrew:**
+
+```bash
+brew install davidbroza/tap/skillchart
+```
+
+**From source:**
 
 ```bash
 git clone https://github.com/davidbroza/skillchart
 cd skillchart
 python3 build.py
 ```
+
+Optional: `pip install tiktoken` for ~10× more accurate token counts (the script falls back to `chars/4` if it's not installed).
 
 ## Usage
 
@@ -51,7 +60,20 @@ skillchart                # build + open dashboard in browser
 skillchart --no-open      # build, don't open
 skillchart --json         # print scanned data as JSON to stdout
 skillchart -o out.html    # write to a specific path
+skillchart --fix-dupes    # show identical disk duplicates (dry run)
+skillchart --fix-dupes --apply
+                          # actually replace duplicates with symlinks
+skillchart --no-usage     # skip parsing session logs (faster)
+skillchart --version
 ```
+
+## What you get
+
+- **Per-skill always-loaded vs when-invoked** token counts (tiktoken when available)
+- **Invocation counts** parsed from your local session logs (`~/.claude/projects/**/*.jsonl`) — see exactly which skills you've actually used and which sit unused
+- **CLI tool descriptions** (Bash, Read, Edit, …) counted alongside skills, since they share the system prompt
+- **Snapshot diff** — every run records a snapshot; the next run shows what grew
+- **Optimization suggestions** — heaviest descriptions, never-invoked skills, redundant disk copies
 
 The HTML is self-contained — open it in any browser, share it as a single file.
 
