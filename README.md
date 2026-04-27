@@ -4,6 +4,8 @@ A one-file dashboard for every Claude Code skill installed on your machine — a
 
 ![skillchart](https://img.shields.io/badge/runs-locally-58a6ff) ![python](https://img.shields.io/badge/python-3.9%2B-3fb950) ![deps](https://img.shields.io/badge/deps-zero-30363d)
 
+![skillchart dashboard](docs/dashboard.png)
+
 ## Why
 
 Skills are great, but every one of them silently injects its name + description into your system prompt on **every turn**, used or not. After installing a few skill packs, you can easily be paying 4k+ tokens per turn for skills you never invoke. skillchart shows you the bill.
