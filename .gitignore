@@ -1,0 +1,7 @@
+# the generated dashboard contains the user's local skill names + descriptions
+# (e.g. private project skills) — keep it out of the public repo
+dashboard.html
+
+__pycache__/
+*.pyc
+.DS_Store
