@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(mkdir -p /Users/davidbroza/.claude/skills/skillchart)",
+      "Bash(cp /Users/davidbroza/skillchart/SKILL.md /Users/davidbroza/.claude/skills/skillchart/SKILL.md)",
+      "Read(//Users/davidbroza/.claude/skills/**)"
+    ]
+  }
+}

@@ -76,16 +76,21 @@ def discover_skills() -> list[dict]:
         if not root.exists():
             continue
         for skill_md in sorted(root.glob("*/SKILL.md")):
+            skill_dir = skill_md.parent
+            is_symlink = skill_dir.is_symlink()
+            link_target = os.readlink(skill_dir) if is_symlink else None
             text = skill_md.read_text(encoding="utf-8", errors="replace")
             fm, body = parse_frontmatter(text)
-            name = fm.get("name") or skill_md.parent.name
+            name = fm.get("name") or skill_dir.name
             description = fm.get("description", "").strip()
             skills.append({
                 "name": name,
                 "description": description,
                 "category": category,
-                "source": label + "/" + skill_md.parent.name,
+                "source": label + "/" + skill_dir.name,
                 "path": str(skill_md),
+                "symlink": is_symlink,
+                "symlink_target": link_target,
                 "desc_chars": len(description),
                 "desc_tokens": estimate_tokens(description),
                 "body_chars": len(body),
@@ -393,8 +398,8 @@ function renderOptimizations() {
   if (dupes.length) {
     sections.push(`
       <div class="opt-section">
-        <h3>🗑️ ${dupes.length} redundant disk copies in <code>~/.claude/skills/</code></h3>
-        <p>These are byte-identical to the auto-managed copies in <code>~/.agents/skills/</code>. Claude Code already dedupes them in the system prompt, so deleting saves <strong>disk + cognitive load</strong>, not context tokens. Remove the <code>~/.claude/skills/&lt;name&gt;/</code> dir; the <code>.agents</code> copy keeps working.</p>
+        <h3>🗑️ ${dupes.length} redundant disk copies</h3>
+        <p>These names exist as <strong>real directories</strong> in more than one location. Claude Code only reads <code>~/.claude/skills/</code>, so deleting the wrong copy will make the skill disappear from sessions. The safe fix: <code>rm -rf ~/.claude/skills/&lt;name&gt; && ln -s ~/.agents/skills/&lt;name&gt; ~/.claude/skills/&lt;name&gt;</code>. The dashboard auto-recognizes symlinks and stops flagging them.</p>
         <ul class="opt-list">
           ${dupes.map(s => `<li><code>${escape(s.name)}</code> — <span class="tok">${fmt(s.body_tokens)} body tok</span> wasted on disk</li>`).join("")}
         </ul>
@@ -471,24 +476,37 @@ def main():
     for s in skills:
         by_name.setdefault(s["name"], []).append(s)
     for name, entries in by_name.items():
-        entries.sort(key=lambda s: CATEGORY_PRIORITY.get(s["category"], 99))
-        for i, s in enumerate(entries):
-            s["duplicate"] = len(entries) > 1
-            s["canonical"] = i == 0  # this row represents the version actually loaded into the system prompt
+        # Symlinks aren't duplicates — they're aliases pointing to the canonical version
+        symlinked = [s for s in entries if s.get("symlink")]
+        non_symlink = [s for s in entries if not s.get("symlink")]
+        non_symlink.sort(key=lambda s: CATEGORY_PRIORITY.get(s["category"], 99))
+        # Canonical = the user-category symlink (loaded by Claude Code) if present, else first non-symlink
+        if symlinked:
+            for s in symlinked:
+                s["canonical"] = True
+                s["duplicate"] = False  # treat the symlink and target as one
+            for s in non_symlink:
+                s["canonical"] = False
+                s["duplicate"] = False
+        else:
+            for i, s in enumerate(non_symlink):
+                s["duplicate"] = len(non_symlink) > 1
+                s["canonical"] = i == 0
     skills.sort(key=lambda s: (-(s.get("body_tokens") or 0), s["name"]))
     out = HTML_TEMPLATE.replace("__DATA__", json.dumps(skills, ensure_ascii=False))
     out_path = Path(__file__).parent / "dashboard.html"
     out_path.write_text(out, encoding="utf-8")
     print(f"wrote {out_path}  ({len(skills)} skills)", file=sys.stderr)
     # quick text summary
+    canonical = [s for s in skills if s["canonical"]]
     by_cat: dict[str, int] = {}
     total_desc = 0
     total_body = 0
-    for s in skills:
+    for s in canonical:
         by_cat[s["category"]] = by_cat.get(s["category"], 0) + 1
         total_desc += s["desc_tokens"] or 0
         total_body += s["body_tokens"] or 0
-    print(f"  by category: {by_cat}", file=sys.stderr)
+    print(f"  unique loaded: {len(canonical)} skills, by category: {by_cat}", file=sys.stderr)
     print(f"  always-loaded ~{total_desc:,} tokens / on-demand sum ~{total_body:,} tokens", file=sys.stderr)
 
 

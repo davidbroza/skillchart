@@ -15,6 +15,6 @@ That's it. The script is dependency-free; it reads SKILL.md frontmatter, totals 
 
 If the user wants to act on the suggestions:
 
-- **Delete a redundant disk copy:** `rm -rf ~/.claude/skills/<name>/`. Verify it's byte-identical to the `~/.agents/skills/<name>/SKILL.md` copy first with `diff -q`. Don't touch `~/.agents/skills/` — those are auto-managed by the SDK and will be re-installed.
+- **Resolve a duplicate:** Claude Code only reads `~/.claude/skills/` — deleting the copy there will make the skill disappear from sessions. After verifying the two copies are byte-identical (`diff -q`), replace the `~/.claude/` copy with a symlink to the SDK-managed one: `rm -rf ~/.claude/skills/<name> && ln -s ~/.agents/skills/<name> ~/.claude/skills/<name>`. One canonical source, both runtimes (CLI + Agent SDK) see it, SDK updates propagate.
 - **Trim a heavy description:** edit the `description:` field in the skill's SKILL.md frontmatter. Aim for ~50 tokens (~200 chars). Keep the trigger phrases ("Use when the user says X") — those drive routing.
 - **Archive an unused skill:** `mv ~/.claude/skills/<name> ~/.claude/skills.archive/<name>` so it stops loading but you can restore later.

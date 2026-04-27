@@ -41,7 +41,7 @@ Zero dependencies. The HTML is self-contained — open it in any browser, share 
 
 Things skillchart will help you find:
 
-1. **Identical disk duplicates.** A skill installed via the Agent SDK (`~/.agents/skills/<name>/`) often gets a hand-copied twin in `~/.claude/skills/<name>/`. Claude Code dedupes by name in the system prompt, so the duplicate doesn't cost context — but it costs disk and confusion. Delete the `~/.claude/skills/` copy; the auto-managed one keeps working.
+1. **Identical disk duplicates.** A skill installed via the Agent SDK (`~/.agents/skills/<name>/`) often gets a hand-copied twin in `~/.claude/skills/<name>/`. **Don't just delete the `~/.claude/` copy** — the Claude Code CLI only reads `~/.claude/skills/`, so deleting it makes the skill disappear from your sessions. Instead, replace it with a symlink to the canonical SDK-managed copy: `rm -rf ~/.claude/skills/<name> && ln -s ~/.agents/skills/<name> ~/.claude/skills/<name>`. Both runtimes now share one source; SDK updates propagate automatically.
 2. **Bloated descriptions.** Anthropic's skill-author guidance is ~50 tokens per description. Rewrite descriptions over ~80 tokens; you'll save tokens on every single turn forever.
 3. **Skills you never invoke.** If a skill body is 5k tokens and you've used it twice in a year, archive it.
 
